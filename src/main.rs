@@ -538,6 +538,32 @@ async fn executor_loop(state: AppState) {
     }
 }
 
+/// Parse a command string into argv tokens without invoking a shell.
+/// Splits on whitespace, but respects double-quoted segments so that e.g.
+/// `flm run "my model"` becomes `["flm", "run", "my model"]`.
+/// This eliminates shell injection — semicolons, pipes, backticks etc. are
+/// passed as literal characters, never interpreted.
+fn parse_command(cmd: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    for ch in cmd.chars() {
+        match ch {
+            '"' => in_quotes = !in_quotes,
+            ' ' | '\t' if !in_quotes => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
 /// Read all bytes from an optional child pipe handle, returning a String.
 async fn read_pipe(pipe: Option<tokio::process::ChildStdout>) -> String {
     use tokio::io::AsyncReadExt;
@@ -575,12 +601,20 @@ async fn run_job(state: AppState, job_id: Uuid) {
 
     // BUG 1 fix: spawn child separately so we can kill it on timeout.
     // Take stdout/stderr handles before waiting so we retain the Child for kill().
-    let spawn_result = Command::new("sh")
-        .arg("-c")
-        .arg(&command)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+    // Shell injection fix: parse command into argv tokens instead of passing to sh -c.
+    let tokens = parse_command(&command);
+    let spawn_result = if tokens.is_empty() {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Empty command",
+        ))
+    } else {
+        Command::new(&tokens[0])
+            .args(&tokens[1..])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    };
 
     let result = match spawn_result {
         Ok(mut child) => {
