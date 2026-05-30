@@ -41,9 +41,7 @@ fn check_npu_status() -> NpuStatus {
 
     // Check if accessible (readable)
     let device_accessible = if device_exists {
-        std::fs::metadata(dev_path)
-            .map(|_| true)
-            .unwrap_or(false)
+        std::fs::metadata(dev_path).map(|_| true).unwrap_or(false)
     } else {
         false
     };
@@ -239,14 +237,26 @@ fn evict_old_jobs(inner: &mut SchedulerInner) {
         .jobs
         .iter()
         .enumerate()
-        .filter(|(_, j)| matches!(j.status, JobStatus::Completed | JobStatus::Failed | JobStatus::Cancelled | JobStatus::TimedOut))
+        .filter(|(_, j)| {
+            matches!(
+                j.status,
+                JobStatus::Completed
+                    | JobStatus::Failed
+                    | JobStatus::Cancelled
+                    | JobStatus::TimedOut
+            )
+        })
         .map(|(i, _)| i)
         .collect();
 
     // Sort by completed_at (oldest first), falling back to submitted_at
     removable_indices.sort_by(|&a, &b| {
-        let time_a = inner.jobs[a].completed_at.unwrap_or(inner.jobs[a].submitted_at);
-        let time_b = inner.jobs[b].completed_at.unwrap_or(inner.jobs[b].submitted_at);
+        let time_a = inner.jobs[a]
+            .completed_at
+            .unwrap_or(inner.jobs[a].submitted_at);
+        let time_b = inner.jobs[b]
+            .completed_at
+            .unwrap_or(inner.jobs[b].submitted_at);
         time_a.cmp(&time_b)
     });
 
@@ -457,12 +467,17 @@ async fn cancel_job_handler(
                         inner.queue.push(pj);
                     }
                 }
-                Ok(Json(serde_json::json!({"message": "Job cancelled", "id": id})))
+                Ok(Json(
+                    serde_json::json!({"message": "Job cancelled", "id": id}),
+                ))
             } else {
                 Err((
                     StatusCode::CONFLICT,
                     Json(ErrorResponse {
-                        error: format!("Job {} is {:?}, can only cancel pending jobs", id, job.status),
+                        error: format!(
+                            "Job {} is {:?}, can only cancel pending jobs",
+                            id, job.status
+                        ),
                     }),
                 ))
             }
@@ -622,12 +637,7 @@ async fn run_job(state: AppState, job_id: Uuid) {
             let child_stdout = child.stdout.take();
             let child_stderr = child.stderr.take();
 
-            match tokio::time::timeout(
-                Duration::from_secs(timeout_secs),
-                child.wait(),
-            )
-            .await
-            {
+            match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait()).await {
                 Ok(Ok(status)) => {
                     let exit_code = status.code().unwrap_or(-1);
                     let stdout = read_pipe(child_stdout).await;
@@ -638,11 +648,7 @@ async fn run_job(state: AppState, job_id: Uuid) {
                 Err(_timeout) => {
                     // Timeout fired — kill the child process
                     if let Err(e) = child.kill().await {
-                        tracing::warn!(
-                            "Failed to kill timed-out child for job {}: {}",
-                            job_id,
-                            e
-                        );
+                        tracing::warn!("Failed to kill timed-out child for job {}: {}", job_id, e);
                     }
                     // Reap the child to avoid zombie
                     let _ = child.wait().await;
@@ -773,16 +779,9 @@ enum Commands {
 // ---------------------------------------------------------------------------
 
 async fn cli_get(url: &str) -> Result<String, String> {
-    let url_parsed: url::Url = url
-        .parse()
-        .map_err(|e| format!("Bad URL: {}", e))
-        // fallback for no url crate
-        .or_else(|_| Err("Invalid URL".to_string()))?;
+    let url_parsed: url::Url = url.parse().map_err(|e| format!("Bad URL: {}", e))?;
 
-    let host = url_parsed
-        .host_str()
-        .ok_or("No host")?
-        .to_string();
+    let host = url_parsed.host_str().ok_or("No host")?.to_string();
     let port = url_parsed.port().unwrap_or(80);
     let path = if url_parsed.path().is_empty() {
         "/"
@@ -821,15 +820,9 @@ async fn cli_get(url: &str) -> Result<String, String> {
 }
 
 async fn cli_post(url: &str, body: &str) -> Result<String, String> {
-    let url_parsed: url::Url = url
-        .parse()
-        .map_err(|e| format!("Bad URL: {}", e))
-        .or_else(|_| Err("Invalid URL".to_string()))?;
+    let url_parsed: url::Url = url.parse().map_err(|e| format!("Bad URL: {}", e))?;
 
-    let host = url_parsed
-        .host_str()
-        .ok_or("No host")?
-        .to_string();
+    let host = url_parsed.host_str().ok_or("No host")?.to_string();
     let port = url_parsed.port().unwrap_or(80);
     let path = if url_parsed.path().is_empty() {
         "/"
@@ -867,15 +860,9 @@ async fn cli_post(url: &str, body: &str) -> Result<String, String> {
 }
 
 async fn cli_delete(url: &str) -> Result<String, String> {
-    let url_parsed: url::Url = url
-        .parse()
-        .map_err(|e| format!("Bad URL: {}", e))
-        .or_else(|_| Err("Invalid URL".to_string()))?;
+    let url_parsed: url::Url = url.parse().map_err(|e| format!("Bad URL: {}", e))?;
 
-    let host = url_parsed
-        .host_str()
-        .ok_or("No host")?
-        .to_string();
+    let host = url_parsed.host_str().ok_or("No host")?.to_string();
     let port = url_parsed.port().unwrap_or(80);
     let path = if url_parsed.path().is_empty() {
         "/"
@@ -921,7 +908,11 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { port, concurrency, max_history } => {
+        Commands::Serve {
+            port,
+            concurrency,
+            max_history,
+        } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_from_default_env()
@@ -965,9 +956,7 @@ async fn main() {
                 .await
                 .expect("Failed to bind");
 
-            axum::serve(listener, app)
-                .await
-                .expect("Server error");
+            axum::serve(listener, app).await.expect("Server error");
         }
 
         Commands::Status { url } => {
@@ -979,11 +968,19 @@ async fn main() {
                             println!("=== NPU Status ===");
                             println!(
                                 "  Module loaded:    {}",
-                                if status.npu.module_loaded { "yes" } else { "no" }
+                                if status.npu.module_loaded {
+                                    "yes"
+                                } else {
+                                    "no"
+                                }
                             );
                             println!(
                                 "  Device exists:    {}",
-                                if status.npu.device_exists { "yes" } else { "no" }
+                                if status.npu.device_exists {
+                                    "yes"
+                                } else {
+                                    "no"
+                                }
                             );
                             println!(
                                 "  Device accessible:{}",
@@ -1040,16 +1037,14 @@ async fn main() {
                 "timeout_secs": timeout,
             });
             match cli_post(&endpoint, &body.to_string()).await {
-                Ok(resp) => {
-                    match serde_json::from_str::<SubmitResponse>(&resp) {
-                        Ok(sr) => {
-                            println!("Job submitted: {}", sr.id);
-                        }
-                        Err(_) => {
-                            println!("{}", resp);
-                        }
+                Ok(resp) => match serde_json::from_str::<SubmitResponse>(&resp) {
+                    Ok(sr) => {
+                        println!("Job submitted: {}", sr.id);
                     }
-                }
+                    Err(_) => {
+                        println!("{}", resp);
+                    }
+                },
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -1060,35 +1055,33 @@ async fn main() {
         Commands::Jobs { url } => {
             let endpoint = format!("{}/jobs", url);
             match cli_get(&endpoint).await {
-                Ok(body) => {
-                    match serde_json::from_str::<Vec<Job>>(&body) {
-                        Ok(jobs) => {
-                            if jobs.is_empty() {
-                                println!("No jobs.");
-                                return;
-                            }
+                Ok(body) => match serde_json::from_str::<Vec<Job>>(&body) {
+                    Ok(jobs) => {
+                        if jobs.is_empty() {
+                            println!("No jobs.");
+                            return;
+                        }
+                        println!(
+                            "{:<38} {:<20} {:<4} {:<12} {:<20}",
+                            "ID", "NAME", "PRI", "STATUS", "SUBMITTED"
+                        );
+                        println!("{}", "-".repeat(96));
+                        for job in &jobs {
+                            let status_str = format!("{:?}", job.status).to_lowercase();
                             println!(
                                 "{:<38} {:<20} {:<4} {:<12} {:<20}",
-                                "ID", "NAME", "PRI", "STATUS", "SUBMITTED"
+                                job.id,
+                                truncate(&job.name, 20),
+                                job.priority,
+                                status_str,
+                                job.submitted_at.format("%Y-%m-%d %H:%M:%S"),
                             );
-                            println!("{}", "-".repeat(96));
-                            for job in &jobs {
-                                let status_str = format!("{:?}", job.status).to_lowercase();
-                                println!(
-                                    "{:<38} {:<20} {:<4} {:<12} {:<20}",
-                                    job.id,
-                                    truncate(&job.name, 20),
-                                    job.priority,
-                                    status_str,
-                                    job.submitted_at.format("%Y-%m-%d %H:%M:%S"),
-                                );
-                            }
-                        }
-                        Err(_) => {
-                            println!("{}", body);
                         }
                     }
-                }
+                    Err(_) => {
+                        println!("{}", body);
+                    }
+                },
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -1186,5 +1179,245 @@ mod url {
                 path: path.to_string(),
             })
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    // --- parse_command ---
+
+    #[test]
+    fn parse_command_simple() {
+        assert_eq!(parse_command("flm run model"), vec!["flm", "run", "model"]);
+    }
+
+    #[test]
+    fn parse_command_quoted_segment() {
+        assert_eq!(
+            parse_command("flm run \"my model\""),
+            vec!["flm", "run", "my model"]
+        );
+    }
+
+    #[test]
+    fn parse_command_collapses_extra_whitespace() {
+        assert_eq!(parse_command("  a\t b   c "), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn parse_command_empty_is_empty() {
+        assert!(parse_command("").is_empty());
+        assert!(parse_command("   \t  ").is_empty());
+    }
+
+    #[test]
+    fn parse_command_shell_metachars_are_literal() {
+        // Semicolons, pipes, backticks are passed through as literal argv tokens,
+        // never interpreted as shell syntax.
+        assert_eq!(
+            parse_command("echo a; rm -rf /"),
+            vec!["echo", "a;", "rm", "-rf", "/"]
+        );
+    }
+
+    // --- truncate_output ---
+
+    #[test]
+    fn truncate_output_under_limit_unchanged() {
+        let s = "hello".to_string();
+        assert_eq!(truncate_output(s.clone(), 1024), s);
+    }
+
+    #[test]
+    fn truncate_output_over_limit_is_truncated_and_marked() {
+        let s = "x".repeat(100);
+        let out = truncate_output(s, 10);
+        assert!(out.starts_with(&"x".repeat(10)));
+        assert!(out.contains("OUTPUT TRUNCATED"));
+    }
+
+    #[test]
+    fn truncate_output_respects_char_boundary() {
+        // "é" is two bytes; cutting at an odd boundary must not panic and must
+        // produce valid UTF-8.
+        let s = "é".repeat(10); // 20 bytes
+        let out = truncate_output(s, 5);
+        // Should not panic; result is valid UTF-8 by construction (String).
+        assert!(out.contains("OUTPUT TRUNCATED"));
+    }
+
+    // --- truncate (CLI display helper) ---
+
+    #[test]
+    fn truncate_display_under_max() {
+        assert_eq!(truncate("short", 20), "short");
+    }
+
+    #[test]
+    fn truncate_display_over_max_adds_ellipsis() {
+        let out = truncate("abcdefghij", 6);
+        assert_eq!(out, "abc...");
+        assert_eq!(out.len(), 6);
+    }
+
+    // --- PendingJob ordering ---
+
+    #[test]
+    fn pending_job_higher_priority_pops_first() {
+        let now = Utc::now();
+        let low = PendingJob {
+            id: Uuid::new_v4(),
+            priority: 1,
+            submitted_at: now,
+        };
+        let high = PendingJob {
+            id: Uuid::new_v4(),
+            priority: 9,
+            submitted_at: now,
+        };
+        let mut heap = BinaryHeap::new();
+        heap.push(low);
+        heap.push(high.clone());
+        assert_eq!(heap.pop().unwrap().id, high.id);
+    }
+
+    #[test]
+    fn pending_job_equal_priority_earlier_submission_first() {
+        let earlier = PendingJob {
+            id: Uuid::new_v4(),
+            priority: 5,
+            submitted_at: Utc::now(),
+        };
+        let later = PendingJob {
+            id: Uuid::new_v4(),
+            priority: 5,
+            submitted_at: earlier.submitted_at + chrono::Duration::seconds(10),
+        };
+        let mut heap = BinaryHeap::new();
+        heap.push(later.clone());
+        heap.push(earlier.clone());
+        // Same priority: the earlier-submitted job should come out first.
+        assert_eq!(heap.pop().unwrap().id, earlier.id);
+    }
+
+    // --- evict_old_jobs ---
+
+    fn make_job(status: JobStatus, completed_offset_secs: i64) -> Job {
+        let base = Utc::now();
+        Job {
+            id: Uuid::new_v4(),
+            name: "t".to_string(),
+            command: "true".to_string(),
+            priority: 5,
+            status,
+            exit_code: None,
+            stdout: None,
+            stderr: None,
+            submitted_at: base,
+            started_at: None,
+            completed_at: Some(base + chrono::Duration::seconds(completed_offset_secs)),
+            timeout_secs: 300,
+        }
+    }
+
+    fn make_inner(jobs: Vec<Job>, max_history: usize) -> SchedulerInner {
+        SchedulerInner {
+            jobs,
+            queue: BinaryHeap::new(),
+            running_count: 0,
+            concurrency_limit: 1,
+            max_history,
+        }
+    }
+
+    #[test]
+    fn evict_keeps_under_limit_untouched() {
+        let mut inner = make_inner(
+            vec![
+                make_job(JobStatus::Completed, 1),
+                make_job(JobStatus::Completed, 2),
+            ],
+            10,
+        );
+        evict_old_jobs(&mut inner);
+        assert_eq!(inner.jobs.len(), 2);
+    }
+
+    #[test]
+    fn evict_removes_oldest_completed_first() {
+        let oldest = make_job(JobStatus::Completed, 1);
+        let oldest_id = oldest.id;
+        let newest = make_job(JobStatus::Completed, 100);
+        let mut inner = make_inner(vec![oldest, newest], 1);
+        evict_old_jobs(&mut inner);
+        assert_eq!(inner.jobs.len(), 1);
+        // The oldest completed job must be the one evicted.
+        assert!(inner.jobs.iter().all(|j| j.id != oldest_id));
+    }
+
+    #[test]
+    fn evict_never_removes_pending_or_running() {
+        // Two active jobs, history limit 1: nothing is removable, so both stay.
+        let mut inner = make_inner(
+            vec![
+                make_job(JobStatus::Pending, 1),
+                make_job(JobStatus::Running, 2),
+            ],
+            1,
+        );
+        evict_old_jobs(&mut inner);
+        assert_eq!(inner.jobs.len(), 2);
+    }
+
+    #[test]
+    fn evict_disabled_when_max_history_zero() {
+        let mut inner = make_inner(
+            vec![
+                make_job(JobStatus::Completed, 1),
+                make_job(JobStatus::Completed, 2),
+                make_job(JobStatus::Completed, 3),
+            ],
+            0,
+        );
+        evict_old_jobs(&mut inner);
+        assert_eq!(inner.jobs.len(), 3);
+    }
+
+    // --- url::Url parser ---
+
+    #[test]
+    fn url_parses_host_port_path() {
+        let u = url::Url::from_str("http://127.0.0.1:7890/status").unwrap();
+        assert_eq!(u.host_str(), Some("127.0.0.1"));
+        assert_eq!(u.port(), Some(7890));
+        assert_eq!(u.path(), "/status");
+    }
+
+    #[test]
+    fn url_defaults_path_when_absent() {
+        let u = url::Url::from_str("http://localhost:8080").unwrap();
+        assert_eq!(u.host_str(), Some("localhost"));
+        assert_eq!(u.port(), Some(8080));
+        assert_eq!(u.path(), "/");
+    }
+
+    #[test]
+    fn url_no_port_yields_none() {
+        let u = url::Url::from_str("http://example.com/jobs").unwrap();
+        assert_eq!(u.host_str(), Some("example.com"));
+        assert_eq!(u.port(), None);
+        assert_eq!(u.path(), "/jobs");
+    }
+
+    #[test]
+    fn url_rejects_unsupported_scheme() {
+        assert!(url::Url::from_str("ftp://example.com").is_err());
     }
 }
